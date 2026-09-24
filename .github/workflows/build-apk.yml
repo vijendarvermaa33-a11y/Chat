@@ -1,0 +1,96 @@
+name: Build App APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Android ZIP
+        run: |
+          ls -lah
+          test -f Android.zip || {
+            echo "ERROR: Android.zip not found"
+            exit 1
+          }
+
+      - name: Extract Android project
+        run: |
+          rm -rf AndroidBuild
+          mkdir AndroidBuild
+          unzip -q Android.zip -d AndroidBuild
+          echo "===== Extracted files ====="
+          find AndroidBuild -maxdepth 8 -type f | sort
+
+      - name: Detect project root
+        run: |
+          if [ -f "AndroidBuild/settings.gradle" ]; then
+            echo "PROJECT_DIR=AndroidBuild" >> "$GITHUB_ENV"
+          elif [ -f "AndroidBuild/WhatsAppChat_GitHub_Android_Project/settings.gradle" ]; then
+            echo "PROJECT_DIR=AndroidBuild/WhatsAppChat_GitHub_Android_Project" >> "$GITHUB_ENV"
+          else
+            echo "ERROR: settings.gradle not found inside Android.zip"
+            find AndroidBuild -maxdepth 10 -type f | sort
+            exit 1
+          fi
+
+      - name: Verify Android project
+        run: |
+          test -f "$PROJECT_DIR/settings.gradle"
+          test -f "$PROJECT_DIR/build.gradle"
+          test -f "$PROJECT_DIR/app/build.gradle"
+          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          echo "Android project verified successfully."
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Gradle Wrapper
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          gradle wrapper --gradle-version 8.9
+
+      - name: Build Debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          ./gradlew clean assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          ls -lh app/build/outputs/apk/debug/
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          echo "APK BUILD SUCCESSFUL!"
+
+      - name: Prepare APK
+        run: |
+          mkdir -p output
+          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" \
+             output/App.apk
+          ls -lh output/App.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: App-APK
+          path: output/App.apk
+          if-no-files-found: error
